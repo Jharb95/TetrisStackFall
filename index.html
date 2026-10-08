@@ -1,9 +1,27 @@
-<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#faf9f5;color:#141413}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#0a0d1d">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Stackfall">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
 <title>Stackfall</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;700&family=JetBrains+Mono:wght@500;700&display=swap">
 <style>
+/* page reset */
+:root{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+html{background:#0a0d1d}
+body{margin:0;overscroll-behavior:none;-webkit-tap-highlight-color:transparent}
+[hidden]{display:none!important}
+
 /* Layout: arcade cabinet. Hold + stats left, the well centered and sized to the screen, next queue + controls right.
    On phones the info row sits above the well and a touch pad sits below it. Deliberately single dark theme. */
 :root{
@@ -84,6 +102,7 @@ button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 #frame{
   position:relative;width:var(--bw,300px);height:var(--bh,600px);
   border-radius:4px;
+  touch-action:none;
   box-shadow:0 0 0 2px var(--line),0 0 0 7px var(--panel),0 0 0 8px var(--line),0 24px 60px rgba(0,0,0,.55);
 }
 #board{position:absolute;inset:0;border-radius:4px}
@@ -146,10 +165,13 @@ button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
   #keys{display:none}
   #touch{display:grid}
   .card .keyhint{display:none}
+  .card .touchhint{display:block}
 }
+.card .touchhint{display:none;font-size:12px}
 @media (prefers-reduced-motion:reduce){.card h1 span{animation:none}}
 </style>
-
+</head>
+<body>
 <div id="app">
   <section class="panel" id="holdPanel"><h2>Hold</h2><canvas id="hold"></canvas></section>
   <section class="panel" id="stats">
@@ -167,6 +189,7 @@ button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
           <p>Seven shapes, ten columns. Fill rows to clear them before the stack reaches the top.</p>
           <button class="play" id="playBtn">Play</button>
           <p class="keyhint">Press Enter to start</p>
+          <p class="touchhint">Swipe left or right to move. Tap to rotate. Drag down to drop slowly, flick down to slam. Swipe up to hold.</p>
         </div>
         <div class="card" id="pauseCard" hidden>
           <h2>Paused</h2>
@@ -657,6 +680,61 @@ document.querySelectorAll('[data-act]').forEach(b => {
   b.addEventListener('lostpointercapture', up);
   b.addEventListener('contextmenu', e => e.preventDefault());
 });
+// ---------- board gestures (touch / pen) ----------
+// Drag sideways: move one column per cell width dragged. Tap: rotate clockwise.
+// Drag down: soft drop one row per cell dragged. Fast flick down: hard drop. Swipe up: hold.
+const frameEl = $('frame');
+let gest = null;
+frameEl.addEventListener('pointerdown', e => {
+  if (e.pointerType === 'mouse') return;
+  if (state !== 'play' || e.target.closest('#overlay')) return;
+  e.preventDefault(); ensureAudio();
+  try { frameEl.setPointerCapture(e.pointerId); } catch (_) {}
+  const now = performance.now();
+  gest = {id: e.pointerId, x0: e.clientX, y0: e.clientY, lx: e.clientX, ly: e.clientY, t0: now, axis: null, samples: [{y: e.clientY, t: now}]};
+});
+frameEl.addEventListener('pointermove', e => {
+  if (!gest || e.pointerId !== gest.id) return;
+  e.preventDefault();
+  const now = performance.now();
+  gest.samples.push({y: e.clientY, t: now});
+  while (gest.samples.length > 2 && now - gest.samples[0].t > 90) gest.samples.shift();
+  const ax = e.clientX - gest.x0, ay = e.clientY - gest.y0;
+  if (!gest.axis && Math.max(Math.abs(ax), Math.abs(ay)) > 12) {
+    gest.axis = Math.abs(ax) > Math.abs(ay) ? 'h' : (ay > 0 ? 'down' : 'up');
+    gest.lx = e.clientX; gest.ly = e.clientY;
+    if (gest.axis === 'h') { moveH(ax > 0 ? 1 : -1); }
+  }
+  const step = Math.max(14, CELL * .85);
+  if (gest.axis === 'h') {
+    while (e.clientX - gest.lx >= step) { moveH(1); gest.lx += step; }
+    while (gest.lx - e.clientX >= step) { moveH(-1); gest.lx -= step; }
+  } else if (gest.axis === 'down') {
+    while (e.clientY - gest.ly >= step) {
+      if (canAct() && stepDown()) { score += 1; gravAcc = 0; }
+      gest.ly += step;
+    }
+  }
+});
+function endGesture(e, cancelled) {
+  if (!gest || e.pointerId !== gest.id) return;
+  const g = gest; gest = null;
+  if (cancelled || state !== 'play') return;
+  const now = performance.now();
+  const dx = e.clientX - g.x0, dy = e.clientY - g.y0;
+  if (!g.axis && Math.hypot(dx, dy) < 12 && now - g.t0 < 350) { rotate(1); return; }
+  if (g.axis === 'down') {
+    const s0 = g.samples[0];
+    const v = (e.clientY - s0.y) / Math.max(1, now - s0.t); // px per ms
+    if (v > .9 && dy > CELL * 1.2) hardDrop();
+  } else if (g.axis === 'up' && dy < -CELL * 1.5 && Math.abs(dy) > Math.abs(dx)) {
+    holdPiece();
+  }
+}
+frameEl.addEventListener('pointerup', e => endGesture(e, false));
+frameEl.addEventListener('pointercancel', e => endGesture(e, true));
+frameEl.addEventListener('contextmenu', e => e.preventDefault());
+
 $('playBtn').addEventListener('click', start);
 $('againBtn').addEventListener('click', start);
 $('resumeBtn').addEventListener('click', togglePause);
@@ -892,5 +970,10 @@ function frame(t) {
 requestAnimationFrame(frame);
 })();
 </script>
-
-</body></html>
+<script>
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => { navigator.serviceWorker.register('sw.js').catch(() => {}); });
+}
+</script>
+</body>
+</html>
