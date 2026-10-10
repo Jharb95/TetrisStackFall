@@ -1,6 +1,6 @@
 // Stackfall service worker: lets the game install as an app and play offline.
 // When you upload a new version of index.html, change this number (v2, v3...) so phones pick it up.
-const CACHE = 'stackfall-v2';
+const CACHE = 'stackfall-v3';
 const ASSETS = [
   './',
   './index.html',
