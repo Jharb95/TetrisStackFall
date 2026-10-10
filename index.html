@@ -16,6 +16,11 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;700&family=JetBrains+Mono:wght@500;700&display=swap">
 <style>
+/* lock the page: no scrolling, zooming, text selection or tap highlights */
+body{position:fixed;left:0;right:0;top:env(safe-area-inset-top,0px);bottom:env(safe-area-inset-bottom,0px);overscroll-behavior:none}
+html{overflow:hidden;overscroll-behavior:none;touch-action:none}
+*{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;-webkit-tap-highlight-color:transparent}
+
 /* page reset */
 :root{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
 html{background:#0a0d1d}
@@ -47,7 +52,7 @@ body{
   overflow:hidden;
   user-select:none;
   -webkit-user-select:none;
-  touch-action:manipulation;
+  touch-action:none;
 }
 #app{
   height:100%;
@@ -266,7 +271,7 @@ const KI = {'0>1':[[0,0],[-2,0],[1,0],[-2,-1],[1,2]],'1>0':[[0,0],[2,0],[-1,0],[
   '2>3':[[0,0],[2,0],[-1,0],[2,1],[-1,-2]],'3>2':[[0,0],[-2,0],[1,0],[-2,-1],[1,2]],
   '3>0':[[0,0],[1,0],[-2,0],[1,-2],[-2,1]],'0>3':[[0,0],[-1,0],[2,0],[-1,2],[2,-1]]};
 
-const DAS = 160, ARR = 45, LOCK_MS = 500, MAX_RESETS = 15, CLEAR_MS = 380, SOFT_MS = 32;
+const DAS = 160, ARR = 45, LOCK_MS = 500, MAX_RESETS = 15, CLEAR_MS = 380, SOFT_MS = 80; // soft drop speed: ms per row while holding down (higher = slower)
 
 // ---------- DOM / canvas ----------
 const app = $('app'), boardC = $('board'), holdC = $('hold'), nextC = $('next');
@@ -734,6 +739,22 @@ function endGesture(e, cancelled) {
 frameEl.addEventListener('pointerup', e => endGesture(e, false));
 frameEl.addEventListener('pointercancel', e => endGesture(e, true));
 frameEl.addEventListener('contextmenu', e => e.preventDefault());
+
+// ---------- page lock (iOS ignores user-scalable=no, so block gestures directly) ----------
+const block = e => e.preventDefault();
+['gesturestart', 'gesturechange', 'gestureend', 'dblclick', 'selectstart', 'contextmenu', 'dragstart']
+  .forEach(t => document.addEventListener(t, block, {passive: false}));
+document.addEventListener('touchmove', block, {passive: false});
+let lastTouchEnd = 0;
+document.addEventListener('touchend', e => {
+  const now = Date.now();
+  if (now - lastTouchEnd < 350) e.preventDefault(); // stops double-tap zoom and selection
+  lastTouchEnd = now;
+}, {passive: false});
+document.addEventListener('wheel', e => { if (e.ctrlKey) e.preventDefault(); }, {passive: false});
+addEventListener('keydown', e => {
+  if ((e.ctrlKey || e.metaKey) && ['+', '=', '-', '_', '0'].includes(e.key)) e.preventDefault();
+});
 
 $('playBtn').addEventListener('click', start);
 $('againBtn').addEventListener('click', start);
